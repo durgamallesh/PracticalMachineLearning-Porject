@@ -1,0 +1,138 @@
+---
+title: "PracticalMachineLearning Week4 Project"
+author: "Mallesh"
+date: "February 9, 2016"
+output: html_document
+---
+
+The goal of this project is to build a model which predicts the whether the weight exercises are done properly or not. 
+The data for this project come from this source and process to gather the information is also explained: [Human Activity Rate](http://groupware.les.inf.puc-rio.br/har).
+We have a training dataset with the data on how three types of exercises were performed by 6 different subjects. Lets read the data and take a look at its structure.
+
+Read the files into R:
+
+```{r import data}
+train <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+test <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+```
+
+peek into the structure of our training dataset:
+
+```{r print training summary}
+
+#to keep the summary short, printing only some saample columns
+summary(train)
+```
+
+Looking at the structure of the data it is eveident that there are lot of variables that are mostly NA with only 0.02 % of values. 
+Let us remove these variables from both testing and training sets as they might not have a huge impact on the model.
+
+```{r data cleanup on training step-1}
+na_count <-sapply(train, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count)
+na_count <- cbind(row.names(na_count), na_count$na_count)
+row.names(na_count) <- NULL
+na_to_include <- na_count[na_count[,2] == 0,1]
+```
+
+After removing the above mentioned columns, if we look at the summary again, there are still some variables with no proper values like kurtosis, skewness etc. Majority of their values are DIV/0. Let us remove such columns too. And we are also removing the first 5 columns from the data frame which have values like timestamps and the subject name. 
+
+```{r data cleanup - step2}
+
+na_to_include <- na_to_include[-c(grep("*_yaw_belt|_yaw_dumbbell|_yaw_forearm",na_to_include) , grep("skewness|kurtosis*",na_to_include),1,2,3,4,5)]
+train_no_na <- train[,na_to_include]
+
+
+dim(train_no_na)
+
+```
+
+At this point data looks clean, with no NAs or wierd values. 
+
+Applying same set of rules to the test set:
+
+```{r data cleanup - testing}
+na_count <-sapply(test, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count)
+na_count <- cbind(row.names(na_count), na_count$na_count)
+row.names(na_count) <- NULL
+na_to_include <- na_count[na_count[,2] == 0,1]
+na_to_include <- na_to_include[-c(grep("*_yaw_belt|_yaw_dumbbell|_yaw_forearm",na_to_include) , grep("skewness|kurtosis*",na_to_include),1,2,3,4,5)]
+
+test_no_na <- test[,na_to_include]
+
+dim(test_no_na)
+
+```
+
+
+We understand from the assignment notes that the target variable is classe, lets take a look at the different values:
+```{r}
+unique(train_no_na$classe)
+```
+
+let us split the dataset based on classe variable into a 60/40 split. 60% for training and 40 for validation.
+
+```{r data split}
+library(caret)
+set.seed(11111)
+inTrain <- createDataPartition(train_no_na$classe,p=0.6,list=F)
+
+training <- train_no_na[inTrain,]
+validation <- train_no_na[-inTrain,]
+
+dim(training)
+dim(validation)
+```
+
+lets define a training control parameter to apply k-fold cross validation:
+
+```{r training control}
+train_control <- trainControl(method="cv", number=10)
+
+```
+
+Let us build a model with a basic RPART method:
+
+```{r build rpart model}
+
+modelRPART <- train(classe ~ ., data = training, trControl = train_control, method="rpart")
+
+modelRPART$results
+```
+
+As can be seen the accuracy is very poor (56%), however let us see the results on validation dataset. the Out of Sample error is at 44%.
+
+```{r predict based on rpart}
+predRPART <- predict(modelRPART, newdata=validation)
+
+confusionMatrix(validation$classe, predRPART)
+
+```
+
+Confusion matrix indicates that the accuracy is at 54%. No bad for starters. Let us try to apply a more advanced algorithm, Random Forests to check if the accuracy improves.
+
+
+```{r build random forest model}
+modelRF <- train(classe ~ ., data = training, trControl = train_control, method="rf", ntree=30)
+
+modelRF$results
+
+```
+
+the accuracy is at 99%, based in the model results and out of sample error at <0.01%. Lets predict the values on validation set.
+
+```{r predict based on random forest model}
+predRF <- predict(modelRF, newdata=validation)
+
+confusionMatrix(validation$classe, predRF)
+```
+
+The results indicate an accuracy of 99.54%. Applying this model on testing data set:
+```{r final test set prediction}
+predRF <- predict(modelRF, newdata=test_no_na)
+
+predRF
+```
+
+
